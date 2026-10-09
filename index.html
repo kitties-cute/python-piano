@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio to Piano Code Converter (2017 Style)</title>
+    <style>
+        body {
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #ffffff;
+            color: #222222;
+            margin: 0;
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h2 {
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+
+        p.subtitle {
+            color: #666666;
+            margin-top: 0;
+            margin-bottom: 25px;
+            font-size: 14px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 700px;
+            background: #f9f9f9;
+            border: 1px solid #d0d0d0;
+            padding: 25px;
+            box-sizing: border-box;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        /* 2017 Sharp 0px Border Radius Button Style */
+        .btn {
+            background-color: #ffffff;
+            color: #000000;
+            border: 1px solid #000000;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 0px;
+            transition: background-color 0.1s, color 0.1s;
+            display: inline-block;
+        }
+
+        .btn:hover, .btn:active {
+            background-color: #00a2ff;
+            color: #ffffff;
+            border-color: #00a2ff;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-upload-label {
+            display: inline-block;
+            background: #ffffff;
+            border: 1px solid #000000;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        .file-upload-label:hover {
+            background: #00a2ff;
+            color: #ffffff;
+            border-color: #00a2ff;
+        }
+
+        textarea {
+            width: 100%;
+            height: 200px;
+            border: 1px solid #bbbbbb;
+            background: #ffffff;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 13px;
+            box-sizing: border-box;
+            resize: vertical;
+            border-radius: 0px;
+        }
+
+        #file-name {
+            margin-left: 10px;
+            font-size: 13px;
+            color: #555555;
+        }
+
+        .status {
+            margin-top: 10px;
+            font-size: 13px;
+            color: #007acc;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Audio to Piano Code Converter</h2>
+    <p class="subtitle">Convert any song or sound file into a playable piano sequence for your Python piano app!</p>
+
+    <div class="container">
+        <div class="form-group">
+            <label>1. Select Audio File (.mp3, .wav, .ogg)</label>
+            <label for="audio-file" class="file-upload-label">Choose Audio File</label>
+            <input type="file" id="audio-file" accept="audio/*">
+            <span id="file-name">No file chosen</span>
+        </div>
+
+        <div class="form-group">
+            <button class="btn" id="convert-btn" onclick="convertAudio()">Convert to Piano Code</button>
+            <div id="status" class="status"></div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+            <label>2. Generated Piano Code (Ready to Import)</label>
+            <textarea id="output-code" placeholder="Your generated JSON code will appear here..."></textarea>
+            <button class="btn" style="margin-top: 10px;" onclick="copyCode()">Copy Code to Clipboard</button>
+        </div>
+    </div>
+
+<script>
+    const fileInput = document.getElementById('audio-file');
+    const fileNameSpan = document.getElementById('file-name');
+    const statusDiv = document.getElementById('status');
+    const outputTextarea = document.getElementById('output-code');
+
+    fileInput.addEventListener('change', function() {
+        if (fileInput.files.length > 0) {
+            fileNameSpan.textContent = fileInput.files[0].name;
+        } else {
+            fileNameSpan.textContent = "No file chosen";
+        }
+    });
+
+    async function convertAudio() {
+        if (fileInput.files.length === 0) {
+            alert("Please select an audio file first!");
+            return;
+        }
+
+        statusDiv.textContent = "Processing audio analysis...";
+        outputTextarea.value = "";
+
+        try {
+            const file = fileInput.files[0];
+            const arrayBuffer = await file.arrayBuffer();
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+            const channelData = audioBuffer.getChannelData(0); // Left channel
+            const sampleRate = audioBuffer.sampleRate;
+            
+            // Analyze audio in frames of ~100ms
+            const frameSize = 2048;
+            const hopSize = Math.floor(sampleRate * 0.08); // 80ms steps
+            const events = [];
+
+            statusDiv.textContent = "Analyzing pitches and generating notes...";
+
+            for (let i = 0; i < channelData.length - frameSize; i += hopSize) {
+                let slice = channelData.subarray(i, i + frameSize);
+                
+                // Simple RMS volume check to filter out silence
+                let rms = 0;
+                for (let j = 0; j < slice.length; j++) {
+                    rms += slice[j] * slice[j];
+                }
+                rms = Math.sqrt(rms / slice.length);
+
+                if (rms > 0.03) { // Threshold for sound detection
+                    let freq = autoCorrelate(slice, sampleRate);
+                    if (freq > 50 && freq > 0) { // Valid audible frequency
+                        let midi = frequencyToMidi(freq);
+                        // Constrain MIDI within standard 88-key piano range (21 to 108)
+                        midi = Math.max(21, Math.min(108, midi));
+                        
+                        let timeSec = parseFloat((i / sampleRate).toFixed(3));
+                        let durationSec = 0.1; // Note duration
+
+                        events.push({ time: timeSec, midi: midi, type: "down" });
+                        events.push({ time: parseFloat((timeSec + durationSec).toFixed(3)), midi: midi, type: "up" });
+                    }
+                }
+            }
+
+            // Sort events by timestamp
+            events.sort((a, b) => a.time - b.time);
+
+            outputTextarea.value = JSON.stringify(events, null, 2);
+            statusDiv.textContent = `Conversion complete! Generated ${events.length} note events.`;
+
+        } catch (e) {
+            console.error(e);
+            statusDiv.textContent = "Error processing audio file. Try a different .wav or .mp3 file.";
+        }
+    }
+
+    // Autocorrelation pitch detection algorithm
+    function autoCorrelate(buffer, sampleRate) {
+        let SIZE = buffer.length;
+        let sum = 0;
+        for (let i = 0; i < SIZE; i++) sum += buffer[i] * buffer[i];
+        let rootMeanSquare = Math.sqrt(sum / SIZE);
+        if (rootMeanSquare < 0.01) return -1;
+
+        let r1 = 0, r2 = SIZE - 1, threshold = 0.2;
+        for (let i = 0; i < SIZE / 2; i++) {
+            if (Math.abs(buffer[i]) < threshold) { r1 = i; break; }
+        }
+        for (let i = 1; i < SIZE / 2; i++) {
+            if (Math.abs(buffer[SIZE - i]) < threshold) { r2 = SIZE - i; break; }
+        }
+
+        let slice = buffer.slice(r1, r2);
+        let c = new Array(slice.length).fill(0);
+        for (let i = 0; i < slice.length; i++) {
+            for (let j = 0; j < slice.length - i; j++) {
+                c[i] = c[i] + slice[j] * slice[j + i];
+            }
+        }
+
+        let d = 0;
+        while (c[d] > c[d + 1]) d++;
+        let maxval = -1, maxpos = -1;
+        for (let i = d; i < slice.length; i++) {
+            if (c[i] > maxval) {
+                maxval = c[i];
+                maxpos = i;
+            }
+        }
+        let T0 = maxpos;
+        return sampleRate / T0;
+    }
+
+    function frequencyToMidi(frequency) {
+        return Math.round(69 + 12 * Math.log2(frequency / 440));
+    }
+
+    function copyCode() {
+        outputTextarea.select();
+        document.execCommand("copy");
+        alert("Piano code copied to clipboard!");
+    }
+</script>
+
+</body>
+</html>
