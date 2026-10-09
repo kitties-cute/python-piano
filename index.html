@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audio to Piano Code Converter (2017 Style)</title>
+    <title>Audio to Python Piano Code</title>
     <style>
         body {
             font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -60,6 +60,9 @@
             border-radius: 0px;
             transition: background-color 0.1s, color 0.1s;
             display: inline-block;
+            text-decoration: none;
+            box-sizing: border-box;
+            text-align: center;
         }
 
         .btn:hover, .btn:active {
@@ -136,7 +139,8 @@
             <label>2. Generated Piano Code (Ready to Import)</label>
             <textarea id="output-code" placeholder="Your generated JSON code will appear here..."></textarea>
             <button class="btn" style="margin-top: 10px;" onclick="copyCode()">Copy Code to Clipboard</button>
-            <button class="btn" style="margin-top: 10px;" href="/piano.pyw">Download Piano (requires python)</button>
+            <br>
+            <a href="full_piano_app.py" download="piano.pyw" class="btn" style="margin-top: 10px;">Download Piano (requires python)</a>
         </div>
     </div>
 
@@ -169,12 +173,11 @@
             const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
-            const channelData = audioBuffer.getChannelData(0); // Left channel
+            const channelData = audioBuffer.getChannelData(0);
             const sampleRate = audioBuffer.sampleRate;
             
-            // Analyze audio in frames of ~100ms
             const frameSize = 2048;
-            const hopSize = Math.floor(sampleRate * 0.08); // 80ms steps
+            const hopSize = Math.floor(sampleRate * 0.08);
             const events = [];
 
             statusDiv.textContent = "Analyzing pitches and generating notes...";
@@ -182,22 +185,20 @@
             for (let i = 0; i < channelData.length - frameSize; i += hopSize) {
                 let slice = channelData.subarray(i, i + frameSize);
                 
-                // Simple RMS volume check to filter out silence
                 let rms = 0;
                 for (let j = 0; j < slice.length; j++) {
                     rms += slice[j] * slice[j];
                 }
                 rms = Math.sqrt(rms / slice.length);
 
-                if (rms > 0.03) { // Threshold for sound detection
+                if (rms > 0.03) {
                     let freq = autoCorrelate(slice, sampleRate);
-                    if (freq > 50 && freq > 0) { // Valid audible frequency
+                    if (freq > 50 && freq > 0) {
                         let midi = frequencyToMidi(freq);
-                        // Constrain MIDI within standard 88-key piano range (21 to 108)
                         midi = Math.max(21, Math.min(108, midi));
                         
                         let timeSec = parseFloat((i / sampleRate).toFixed(3));
-                        let durationSec = 0.1; // Note duration
+                        let durationSec = 0.1;
 
                         events.push({ time: timeSec, midi: midi, type: "down" });
                         events.push({ time: parseFloat((timeSec + durationSec).toFixed(3)), midi: midi, type: "up" });
@@ -205,7 +206,6 @@
                 }
             }
 
-            // Sort events by timestamp
             events.sort((a, b) => a.time - b.time);
 
             outputTextarea.value = JSON.stringify(events, null, 2);
@@ -217,7 +217,6 @@
         }
     }
 
-    // Autocorrelation pitch detection algorithm
     function autoCorrelate(buffer, sampleRate) {
         let SIZE = buffer.length;
         let sum = 0;
