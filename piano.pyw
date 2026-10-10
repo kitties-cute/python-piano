@@ -187,23 +187,28 @@ RED_RECORD = (230, 60, 60)
 GREEN_PLAY = (40, 180, 90)
 PURPLE_LOOP = (140, 80, 200)
 
-pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=512)
+pygame.mixer.pre_init(frequency=44100, size=-16, channels=64, buffer=512)
 pygame.init()
-pygame.mixer.init(frequency=44100, size=-16, channels=2)
+pygame.mixer.init(frequency=44100, size=-16, channels=64)
+pygame.mixer.set_num_channels(64) # Allow up to 64 simultaneous overlapping sounds
 
 screen = pygame.display.set_mode((INITIAL_WIDTH, INITIAL_HEIGHT), pygame.RESIZABLE)
-pygame.display.set_caption("Custom Piano - Windows Control Panel Sounds Integration")
+pygame.display.set_caption("Custom Piano - True Polyphony & Clean Playback")
 font = pygame.font.SysFont("Segoe UI", 13)
 font_bold = pygame.font.SysFont("Segoe UI", 14, bold=True)
-font_key = pygame.font.SysFont("Segoe UI", 12, bold=True)
+font_key = pygame.font.SysFont("Segoe UI", 10, bold=True)
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-SHORTCUT_MAP = [
-    ("A", pygame.K_a), ("W", pygame.K_w), ("S", pygame.K_s), ("E", pygame.K_e),
-    ("D", pygame.K_d), ("F", pygame.K_f), ("T", pygame.K_t), ("G", pygame.K_g),
-    ("Y", pygame.K_y), ("H", pygame.K_h), ("U", pygame.K_u), ("J", pygame.K_j),
-    ("K", pygame.K_k), ("O", pygame.K_o), ("L", pygame.K_l), ("P", pygame.K_p),
-    (";", pygame.K_SEMICOLON)
+
+KEYBOARD_POOL = [
+    (pygame.K_1, "1"), (pygame.K_2, "2"), (pygame.K_3, "3"), (pygame.K_4, "4"), (pygame.K_5, "5"),
+    (pygame.K_6, "6"), (pygame.K_7, "7"), (pygame.K_8, "8"), (pygame.K_9, "9"), (pygame.K_0, "0"),
+    (pygame.K_q, "Q"), (pygame.K_w, "W"), (pygame.K_e, "E"), (pygame.K_r, "R"), (pygame.K_t, "T"),
+    (pygame.K_y, "Y"), (pygame.K_u, "U"), (pygame.K_i, "I"), (pygame.K_o, "O"), (pygame.K_p, "P"),
+    (pygame.K_a, "A"), (pygame.K_s, "S"), (pygame.K_d, "D"), (pygame.K_f, "F"), (pygame.K_g, "G"),
+    (pygame.K_h, "H"), (pygame.K_j, "J"), (pygame.K_k, "K"), (pygame.K_l, "L"), (pygame.K_SEMICOLON, ";"),
+    (pygame.K_z, "Z"), (pygame.K_x, "X"), (pygame.K_c, "C"), (pygame.K_v, "V"), (pygame.K_b, "B"),
+    (pygame.K_n, "N"), (pygame.K_m, "M"), (pygame.K_COMMA, ","), (pygame.K_PERIOD, "."), (pygame.K_SLASH, "/")
 ]
 
 def midi_to_name(midi_num):
@@ -222,20 +227,16 @@ def generate_piano_keys(num_keys=88):
         if midi > 108: break
         name = midi_to_name(midi)
         freq = 440.0 * (2.0 ** ((midi - 69) / 12.0))
-        shortcut_name, shortcut_code = None, None
-        if num_keys <= len(SHORTCUT_MAP) and i < len(SHORTCUT_MAP):
-            shortcut_name, shortcut_code = SHORTCUT_MAP[i]
-            
+        pool_item = KEYBOARD_POOL[i % len(KEYBOARD_POOL)]
         keys.append({
             "midi": midi, "name": name, "freq": freq,
             "is_black": is_black_key(midi),
-            "shortcut_name": shortcut_name, "shortcut_code": shortcut_code
+            "shortcut_code": pool_item[0], "shortcut_name": pool_item[1]
         })
     return keys
 
 PIANO_KEYS = generate_piano_keys(88)
 
-# --- SOUND GENERATORS & LOADERS ---
 def generate_default_tone(frequency=261.63, duration=1.5, sample_rate=44100):
     t = np.linspace(0, duration, int(sample_rate * duration), False)
     wave = (0.4 * np.sin(2 * np.pi * frequency * t) +
@@ -248,53 +249,38 @@ def generate_default_tone(frequency=261.63, duration=1.5, sample_rate=44100):
     audio = np.int16(audio * 32767)
     return np.column_stack((audio, audio))
 
-# Initialize Built-in Sounds list: (Display Name, Numpy Array Array Data)
-builtin_sounds = []
-
-# 1. Add Default Synth Tone
-builtin_sounds.append(("Default Synth", generate_default_tone()))
-
-# 2. Scan and load real Windows Control Panel sound files from C:\Windows\Media
+builtin_sounds = [("Default Synth", generate_default_tone())]
 win_media_dir = "C:\\Windows\\Media"
 if os.path.exists(win_media_dir):
-    # Common Windows sound scheme files
     win_sound_files = [
-        ("Win: Chord", "chord.wav"),
-        ("Win: Ding", "ding.wav"),
-        ("Win: Tada", "tada.wav"),
-        ("Win: Notify", "Windows Notify.wav"),
-        ("Win: Error", "Windows Critical Stop.wav"),
-        ("Win: Logon", "Windows Logon.wav"),
-        ("Win: Recycle", "Windows Recycle.wav"),
+        ("Win: Chord", "chord.wav"), ("Win: Ding", "ding.wav"),
+        ("Win: Tada", "tada.wav"), ("Win: Notify", "Windows Notify.wav"),
+        ("Win: Error", "Windows Critical Stop.wav")
     ]
     for label, fname in win_sound_files:
         fpath = os.path.join(win_media_dir, fname)
         if os.path.exists(fpath):
             try:
                 snd_obj = pygame.mixer.Sound(fpath)
-                arr = pygame.sndarray.array(snd_obj)
-                builtin_sounds.append((label, arr))
-            except Exception as e:
-                print(f"Could not load Windows sound {fname}: {e}")
+                builtin_sounds.append((label, pygame.sndarray.array(snd_obj)))
+            except: pass
 
-# Build combined loaded sound lists (Built-ins are indices 0 to len(builtin_sounds)-1 and are undeletable)
 loaded_sound_arrays = [arr for _, arr in builtin_sounds]
 sound_names = [name for name, _ in builtin_sounds]
 num_builtin_sounds = len(builtin_sounds)
 
-# Load any custom saved sounds from config
 for s_item in app_config.get("saved_sounds", []):
     try:
         if os.path.exists(s_item["path"]):
             snd = pygame.mixer.Sound(s_item["path"])
             loaded_sound_arrays.append(pygame.sndarray.array(snd))
             sound_names.append(s_item["name"])
-    except Exception as e:
-        print(f"Could not load saved sound: {e}")
+    except: pass
 
 current_sound_index = 0
 piano_sounds = {}
 key_states = {}
+mouse_pressed_midi = None
 
 is_recording = False
 is_playing = False
@@ -325,7 +311,6 @@ def pitch_shift(sound_array, semitones):
     resampled = np.zeros((new_length, 2), dtype=np.int16)
     for i in range(2):
         resampled[:, i] = np.interp(new_indices, old_indices, sound_array[:, i])
-
     return np.ascontiguousarray(resampled, dtype=np.int16)
 
 def load_and_prepare_sounds(sound_array):
@@ -342,6 +327,7 @@ def load_and_prepare_sounds(sound_array):
 load_and_prepare_sounds(loaded_sound_arrays[current_sound_index])
 
 def play_note(midi):
+    # FIXED: Always play sound immediately without blocking rapid or simultaneous notes
     if midi in piano_sounds:
         piano_sounds[midi].play()
         key_states[midi] = True
@@ -364,33 +350,26 @@ def handle_custom_sound_upload():
             snd = pygame.mixer.Sound(file_path)
             arr = pygame.sndarray.array(snd)
             filename = os.path.basename(file_path)
-
             loaded_sound_arrays.append(arr)
             sound_names.append(filename)
             current_sound_index = len(loaded_sound_arrays) - 1
             load_and_prepare_sounds(loaded_sound_arrays[current_sound_index])
-
             saved_list = app_config.get("saved_sounds", [])
             saved_list.append({"name": filename, "path": file_path})
             app_config["saved_sounds"] = saved_list
             save_config(app_config)
-        except Exception as e:
-            print(f"Failed to load custom audio: {e}")
+        except Exception as e: print(f"Failed to load audio: {e}")
 
 def remove_sound(index):
     global loaded_sound_arrays, sound_names, current_sound_index
-    # Built-in sounds cannot be removed
     if index < num_builtin_sounds or index >= len(sound_names): return
-    
     removed_name = sound_names[index]
     saved_list = app_config.get("saved_sounds", [])
     app_config["saved_sounds"] = [s for s in saved_list if s["name"] != removed_name]
     save_config(app_config)
-
     del loaded_sound_arrays[index]
     del sound_names[index]
-    if current_sound_index >= len(loaded_sound_arrays):
-        current_sound_index = len(loaded_sound_arrays) - 1
+    if current_sound_index >= len(loaded_sound_arrays): current_sound_index = len(loaded_sound_arrays) - 1
     load_and_prepare_sounds(loaded_sound_arrays[current_sound_index])
 
 def set_key_count_prompt():
@@ -422,8 +401,7 @@ def import_recording():
         try:
             parsed = json.loads(code_str)
             if isinstance(parsed, list): recorded_events = parsed
-        except Exception as e:
-            print(f"Invalid recording code: {e}")
+        except Exception as e: print(f"Invalid code: {e}")
 
 def playback_loop_worker():
     global is_playing
@@ -431,7 +409,6 @@ def playback_loop_worker():
         start_time = time.time()
         event_idx = 0
         total_events = len(recorded_events)
-
         while is_playing and event_idx < total_events:
             current_time = time.time() - start_time
             ev = recorded_events[event_idx]
@@ -439,9 +416,7 @@ def playback_loop_worker():
                 if ev["type"] == "down": play_note(ev["midi"])
                 else: stop_note(ev["midi"])
                 event_idx += 1
-            else:
-                time.sleep(0.002)
-
+            else: time.sleep(0.0005) # Higher precision for fast songs
         if not is_looping: break
         time.sleep(0.3)
     is_playing = False
@@ -517,25 +492,16 @@ while running:
         is_clicked = is_hovered and mouse_pressed
 
         if is_hovered or is_clicked:
-            fill_color = BLUE_HOVER
-            text_color = WHITE
+            fill_color, text_color = BLUE_HOVER, WHITE
         else:
-            fill_color = WHITE
-            text_color = BLACK
+            fill_color, text_color = WHITE, BLACK
 
-        if btn["label"] == t("record") and is_recording:
-            fill_color = RED_RECORD
-            text_color = WHITE
-        elif btn["label"] == t("play") and is_playing:
-            fill_color = GREEN_PLAY
-            text_color = WHITE
-        elif btn["label"] == t("loop") and is_looping:
-            fill_color = PURPLE_LOOP
-            text_color = WHITE
+        if btn["label"] == t("record") and is_recording: fill_color, text_color = RED_RECORD, WHITE
+        elif btn["label"] == t("play") and is_playing: fill_color, text_color = GREEN_PLAY, WHITE
+        elif btn["label"] == t("loop") and is_looping: fill_color, text_color = PURPLE_LOOP, WHITE
 
         pygame.draw.rect(screen, fill_color, rect, border_radius=0)
         pygame.draw.rect(screen, BLACK, rect, 1, border_radius=0)
-
         txt = font_bold.render(btn["label"], True, text_color)
         screen.blit(txt, (bx + (btn_w - txt.get_width()) // 2, btn_y + (btn_h - txt.get_height()) // 2))
 
@@ -547,8 +513,6 @@ while running:
     s_hover = sound_btn_rect.collidepoint(mouse_pos)
     pygame.draw.rect(screen, BLUE_HOVER if s_hover else WHITE, sound_btn_rect, border_radius=0)
     pygame.draw.rect(screen, BLACK, sound_btn_rect, 1, border_radius=0)
-    
-    active_sound_display = sound_names[current_account_idx := current_sound_index]
     s_txt = font.render(f"Sound ▼", True, WHITE if s_hover else BLACK)
     screen.blit(s_txt, (sound_btn_rect.x + 10, sound_btn_rect.y + (btn_h - s_txt.get_height()) // 2))
 
@@ -588,7 +552,7 @@ while running:
             pygame.draw.rect(screen, col, rect)
             pygame.draw.rect(screen, KEY_BORDER, rect, 1)
 
-            if key.get("shortcut_name") and white_key_width > 18:
+            if key.get("shortcut_name") and white_key_width > 16:
                 s_lbl = font_key.render(key["shortcut_name"], True, (40, 40, 40))
                 screen.blit(s_lbl, (x + (white_key_width - s_lbl.get_width()) // 2, keyboard_top + keyboard_height - 60))
 
@@ -616,11 +580,11 @@ while running:
             pygame.draw.rect(screen, col, rect)
             pygame.draw.rect(screen, (70, 70, 70), rect, 1)
 
-            if key.get("shortcut_name") and black_key_width > 12:
+            if key.get("shortcut_name") and black_key_width > 10:
                 s_lbl = font_key.render(key["shortcut_name"], True, WHITE)
                 screen.blit(s_lbl, (x + (black_key_width - s_lbl.get_width()) // 2, keyboard_top + black_key_height - 25))
 
-    # --- 3. DRAW DROPDOWN MENUS (Rendered LAST so they stay on top of piano keys) ---
+    # --- 3. DRAW DROPDOWN MENUS ---
     sound_item_rects = []
     delete_btn_rects = []
     lang_item_rects = []
@@ -635,13 +599,10 @@ while running:
         for idx, sname in enumerate(sound_names):
             item_rect = pygame.Rect(sound_box.x, sound_box.y + (idx * 28), dropdown_w, 28)
             sound_item_rects.append((item_rect, idx))
-
             if item_rect.collidepoint(mouse_pos): pygame.draw.rect(screen, (220, 230, 255), item_rect)
-            
             it_txt = font.render(sname[:18], True, BLACK)
             screen.blit(it_txt, (item_rect.x + 8, item_rect.y + 6))
 
-            # Only show red X remove button for custom user-uploaded sounds (index >= num_builtin_sounds)
             if idx >= num_builtin_sounds:
                 del_rect = pygame.Rect(item_rect.right + 2, item_rect.y + 4, 20, 20)
                 delete_btn_rects.append((del_rect, idx))
@@ -675,14 +636,19 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT: running = False
         elif event.type == pygame.VIDEORESIZE: screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+        
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_F11: toggle_fullscreen()
             else:
                 for key in PIANO_KEYS:
-                    if key.get("shortcut_code") == event.key: play_note(key["midi"])
+                    if key.get("shortcut_code") == event.key:
+                        play_note(key["midi"])
+
         elif event.type == pygame.KEYUP:
             for key in PIANO_KEYS:
-                if key.get("shortcut_code") == event.key: stop_note(key["midi"])
+                if key.get("shortcut_code") == event.key:
+                    stop_note(key["midi"])
+
         elif event.type == pygame.MOUSEBUTTONDOWN:
             pos = event.pos
             action_triggered = False
@@ -744,11 +710,14 @@ while running:
                     for midi, rect in white_key_rects.items():
                         if rect.collidepoint(pos):
                             clicked_midi = midi; break
-                if clicked_midi: play_note(clicked_midi)
+                if clicked_midi:
+                    mouse_pressed_midi = clicked_midi
+                    play_note(clicked_midi)
 
         elif event.type == pygame.MOUSEBUTTONUP:
-            for midi in key_states:
-                if key_states[midi] and not pygame.mouse.get_pressed()[0]: stop_note(midi)
+            if mouse_pressed_midi is not None:
+                stop_note(mouse_pressed_midi)
+                mouse_pressed_midi = None
 
     clock.tick(60)
 
